@@ -1,1 +1,769 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Simulasi Galeri Seni Isometrik</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #020502; /* Matrix Dark */
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+            color: #00ff41;
+        }
+        #bgCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        
+        @keyframes popIn {
+            0% { transform: scale(0.8) translateX(-50%); opacity: 0; }
+            100% { transform: scale(1) translateX(-50%); opacity: 1; }
+        }
+        @keyframes scan {
+            0% { top: -10%; }
+            100% { top: 110%; }
+        }
+        #view-btn {
+            transform: translateX(-50%);
+            transition: all 0.2s ease-out;
+        }
+        #view-btn.show {
+            display: flex;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+    </style>
+</head>
+<body>
 
+    <!-- Canvas untuk Background Matrix Rain -->
+    <canvas id="bgCanvas"></canvas>
+
+    <!-- Canvas untuk Game Engine Isometrik -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Layer UI -->
+    <div id="ui-layer">
+        
+        <!-- Judul Gallery dengan Glitch Effect -->
+        <div class="absolute top-8 w-full text-center pointer-events-none">
+            <h1 id="glitch-title" class="text-3xl md:text-4xl font-bold tracking-[0.3em] text-[#00ff41] drop-shadow-[0_0_10px_rgba(0,255,65,0.8)]">ATAKTOS GALLERY</h1>
+        </div>
+
+        <!-- Instruksi Minimalist -->
+        <div class="absolute top-4 left-4 bg-black/90 p-4 border border-[#00ff41] pointer-events-auto shadow-[0_0_10px_#00ff4140]">
+            <div class="flex flex-col gap-2">
+                <div class="text-[#00ff41] text-sm font-bold tracking-widest">CONTROLS: W A S D</div>
+                <div class="text-[#00ff41] text-xs opacity-80 uppercase mt-1">Get close to the painting<br>and press view</div>
+            </div>
+        </div>
+
+        <!-- Watermark Footer -->
+        <div class="absolute bottom-4 left-4 pointer-events-none text-[#00ff41] text-xs font-bold opacity-70 tracking-widest">
+            fauzanbunz @2026
+        </div>
+
+        <!-- Tombol Interaksi -->
+        <button id="view-btn" class="hidden absolute bottom-20 left-1/2 pointer-events-auto bg-black text-[#00ff41] font-bold py-2 px-6 border-2 border-[#00ff41] shadow-[0_0_15px_#00ff41] hover:bg-[#00ff41] hover:text-black transition-colors items-center gap-2 uppercase tracking-widest">
+            [ VIEW DATA ]
+        </button>
+
+        <!-- Modal Popup Lukisan -->
+        <div id="art-modal" class="hidden fixed inset-0 bg-black/95 pointer-events-auto flex justify-center items-center z-50 p-4 opacity-0 transition-opacity duration-300">
+            <div class="bg-black border-2 border-[#00ff41] shadow-[0_0_30px_#00ff4140] w-full max-w-3xl h-[70vh] flex flex-col transform scale-95 transition-transform duration-300" id="modal-content">
+                
+                <!-- Area Gambar (Abstract Canvas) -->
+                <div class="w-full h-full relative flex flex-col p-4">
+                    <div class="flex justify-between border-b border-[#00ff41] pb-2 mb-4">
+                        <span class="text-[#00ff41] uppercase tracking-widest text-sm font-bold">SIGNAL_VERIFIED</span>
+                        <span class="text-[#00ff41] text-sm font-bold animate-pulse">STATUS: ONLINE</span>
+                    </div>
+                    
+                    <div class="flex-grow border border-[#00ff41] relative overflow-hidden flex items-center justify-center bg-[#020502]" id="matrix-container">
+                        <!-- Procedural visual (Matrix grid line pattern) -->
+                        <div class="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,#00ff4110_2px,#00ff4110_4px)] pointer-events-none z-10"></div>
+                        <!-- Actual Artwork Image -->
+                        <img id="modal-image" src="" class="max-w-full max-h-full object-contain relative z-0 opacity-80" />
+                        <!-- Scanner line -->
+                        <div class="absolute top-0 left-0 w-full h-2 bg-[#00ff41] opacity-40 shadow-[0_0_15px_#00ff41] animate-[scan_3s_linear_infinite] z-20 pointer-events-none"></div>
+                    </div>
+                    
+                    <div class="mt-4 flex justify-between items-center">
+                        <span class="text-[#00ff41] text-xs opacity-70 tracking-widest">DATA_ATAKTOS// ORIGINAL</span>
+                        <button id="close-modal-btn" class="bg-black hover:bg-[#00ff41] hover:text-black text-[#00ff41] border border-[#00ff41] py-1 px-4 uppercase text-sm font-bold transition-colors">
+                            [ CLOSE ]
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /** * SETUP CANVAS & GAME ENGINE
+         */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        
+        // Setup Background Matrix Rune
+        const runes = "ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛟᛞ".split("");
+        const fontSize = 16;
+        let columns = 0;
+        let drops = [];
+        const bgCanvas = document.getElementById('bgCanvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        let lastMatrixUpdate = 0;
+
+        // Ukuran grid dan tile
+        const gridSize = 10;
+        const tileW = 80;
+        const tileH = 40; // Rasio isometrik 2:1
+        
+        // Offset untuk menengahkan peta
+        let offsetX = 0;
+        let offsetY = 0;
+
+        function resizeCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            
+            bgCanvas.width = width;
+            bgCanvas.height = height;
+            columns = Math.floor(width / fontSize);
+            drops = [];
+            for(let x = 0; x < columns; x++) drops[x] = Math.random() * -100; // Mulai acak
+            
+            offsetX = width / 2;
+            offsetY = height / 4 + 50; // Sesuaikan agar pas di layar
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        /**
+         * FUNGSI MATEMATIKA ISOMETRIK
+         */
+        // Konversi koordinat Map (x, y) ke koordinat Layar (screenX, screenY)
+        function toIso(mapX, mapY, z = 0) {
+            const screenX = offsetX + (mapX - mapY) * (tileW / 2);
+            const screenY = offsetY + (mapX + mapY) * (tileH / 2) - z;
+            return { x: screenX, y: screenY };
+        }
+
+        /**
+         * DATA LUKISAN (ARTWORKS)
+         */
+        const artworks = [
+            { id: 1, wall: 'left', pos: 2, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HCR-VIqXcAAHk6z.jpeg" },
+            { id: 2, wall: 'left', pos: 5, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HCpsYv7WUAA-6lg.jpeg" },
+            { id: 3, wall: 'left', pos: 8, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HCw6FU3bwAAQKtF%20(1).jpeg" },
+            { id: 4, wall: 'right', pos: 2, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HCw6FURWUAEznJx.jpeg" },
+            { id: 5, wall: 'right', pos: 5, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HDS94P1WEAEVi8U.jpeg" },
+            { id: 6, wall: 'right', pos: 8, frameColor: "#00ff41", imageUrl: "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/HDSgzoGXEAA224R.jpeg" }
+        ];
+
+        // Preload gambar untuk dirender pada kanvas
+        artworks.forEach(art => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.src = art.imageUrl;
+            art.img = img;
+        });
+
+        /**
+         * DATA DEKORASI (HOLOGRAM)
+         */
+        const decoImages = {
+            vas: new Image(),
+            sofa: new Image(),
+            tali: new Image()
+        };
+        decoImages.vas.crossOrigin = "Anonymous"; decoImages.vas.src = "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/vas.png";
+        decoImages.sofa.crossOrigin = "Anonymous"; decoImages.sofa.src = "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/sofa.png";
+        decoImages.tali.crossOrigin = "Anonymous"; decoImages.tali.src = "https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/tali.png";
+
+        const decorations = [
+            // Sudut ruangan
+            { id: 'vas', img: decoImages.vas, x: 0.8, y: 0.8, w: 50, h: 90, ox: -25, oy: -80, flip: false },
+            // Bawah ruangan (depan)
+            { id: 'sofa', img: decoImages.sofa, x: 8.5, y: 8.5, w: 140, h: 100, ox: -70, oy: -80, flip: false },
+            
+            // Tali pembatas lukisan Kiri (Dibalik)
+            { id: 'tali_L1', img: decoImages.tali, x: 2.5, y: 1.2, w: 70, h: 50, ox: -35, oy: -40, flip: true },
+            { id: 'tali_L2', img: decoImages.tali, x: 5.5, y: 1.2, w: 70, h: 50, ox: -35, oy: -40, flip: true },
+            { id: 'tali_L3', img: decoImages.tali, x: 8.5, y: 1.2, w: 70, h: 50, ox: -35, oy: -40, flip: true },
+            
+            // Tali pembatas lukisan Kanan (Dibalik)
+            { id: 'tali_R1', img: decoImages.tali, x: 1.2, y: 2.5, w: 70, h: 50, ox: -35, oy: -40, flip: false },
+            { id: 'tali_R2', img: decoImages.tali, x: 1.2, y: 5.5, w: 70, h: 50, ox: -35, oy: -40, flip: false },
+            { id: 'tali_R3', img: decoImages.tali, x: 1.2, y: 8.5, w: 70, h: 50, ox: -35, oy: -40, flip: false }
+        ];
+
+        /**
+         * ENTITAS PLAYER
+         */
+        const playerImg = new Image();
+        // Mengubah URL ke bentuk raw agar bisa dirender langsung oleh Canvas
+        playerImg.src = 'https://raw.githubusercontent.com/fauzanbunz/ataktosgallery/main/peng.png';
+
+        const player = {
+            x: 5,           // Koordinat Grid
+            y: 5,
+            speed: 0.08,    // Kecepatan bergerak
+            radius: 0.3,    // Ukuran tabrakan visual
+            color: '#00ff41',
+            // Properti Sprite
+            width: 63,
+            height: 80,
+            frameX: 0,
+            frameY: 0,
+            facing: 'BL',   // 'BL' (Bawah Kiri), 'BR' (Bawah Kanan), 'TR' (Atas Kanan), 'TL' (Atas Kiri)
+            isMoving: false,
+            lastAnimTime: Date.now(),
+            animInterval: 150 // Durasi per frame animasi (ms)
+        };
+
+        // Input Keyboard
+        const keys = {
+            ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
+            w: false, s: false, a: false, d: false
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+            if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+            if (keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false;
+        });
+
+        /**
+         * ANIMASI JUDUL GLITCH
+         */
+        const originalTitle = "ATAKTOS GALLERY";
+        const titleElement = document.getElementById('glitch-title');
+
+        setInterval(() => {
+            let glitched = "";
+            for (let i = 0; i < originalTitle.length; i++) {
+                if (originalTitle[i] === " ") {
+                    glitched += " ";
+                    continue;
+                }
+                // 15% kesempatan huruf berubah menjadi rune
+                if (Math.random() < 0.15) {
+                    glitched += runes[Math.floor(Math.random() * runes.length)];
+                } else {
+                    glitched += originalTitle[i];
+                }
+            }
+            titleElement.textContent = glitched;
+            
+            // Revert ke teks asli setelah 1 detik (1000 ms)
+            setTimeout(() => {
+                titleElement.textContent = originalTitle;
+            }, 1000);
+
+        }, 2000); // Memicu setiap 2 detik agar seimbang (1 detik glitch, 1 detik normal)
+
+
+        /**
+         * FUNGSI MENGGAMBAR (RENDER)
+         */
+        function drawTile(x, y, color, outlineColor) {
+            const p0 = toIso(x, y);
+            const p1 = toIso(x + 1, y);
+            const p2 = toIso(x + 1, y + 1);
+            const p3 = toIso(x, y + 1);
+
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.closePath();
+
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = outlineColor;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        function drawLeftWall() {
+            const wallHeight = 120;
+            ctx.fillStyle = '#001400'; // Warna solid (tidak tembus pandang)
+            ctx.strokeStyle = '#00ff41'; // Neon green outline
+            
+            // Loop untuk menggambar segmen dinding
+            for (let i = 0; i < gridSize; i++) {
+                const bottom0 = toIso(i, 0);
+                const bottom1 = toIso(i + 1, 0);
+                
+                ctx.beginPath();
+                ctx.moveTo(bottom0.x, bottom0.y);
+                ctx.lineTo(bottom1.x, bottom1.y);
+                ctx.lineTo(bottom1.x, bottom1.y - wallHeight);
+                ctx.lineTo(bottom0.x, bottom0.y - wallHeight);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Add vertical matrix line decorative
+                ctx.beginPath();
+                ctx.moveTo(bottom0.x + (bottom1.x - bottom0.x)/2, bottom0.y + (bottom1.y - bottom0.y)/2);
+                ctx.lineTo(bottom0.x + (bottom1.x - bottom0.x)/2, bottom0.y + (bottom1.y - bottom0.y)/2 - wallHeight);
+                ctx.strokeStyle = 'rgba(0, 255, 65, 0.2)';
+                ctx.stroke();
+                ctx.strokeStyle = '#00ff41'; // Reset
+            }
+        }
+
+        function drawRightWall() {
+            const wallHeight = 120;
+            ctx.fillStyle = '#000f00'; // Warna solid (tidak tembus pandang)
+            ctx.strokeStyle = '#00ff41';
+
+            for (let i = 0; i < gridSize; i++) {
+                const bottom0 = toIso(0, i);
+                const bottom1 = toIso(0, i + 1);
+                
+                ctx.beginPath();
+                ctx.moveTo(bottom0.x, bottom0.y);
+                ctx.lineTo(bottom1.x, bottom1.y);
+                ctx.lineTo(bottom1.x, bottom1.y - wallHeight);
+                ctx.lineTo(bottom0.x, bottom0.y - wallHeight);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Add vertical matrix line decorative
+                ctx.beginPath();
+                ctx.moveTo(bottom0.x + (bottom1.x - bottom0.x)/2, bottom0.y + (bottom1.y - bottom0.y)/2);
+                ctx.lineTo(bottom0.x + (bottom1.x - bottom0.x)/2, bottom0.y + (bottom1.y - bottom0.y)/2 - wallHeight);
+                ctx.strokeStyle = 'rgba(0, 255, 65, 0.2)';
+                ctx.stroke();
+                ctx.strokeStyle = '#00ff41'; // Reset
+            }
+        }
+
+        function drawPainting(art) {
+            const paintingSize = 55; // Dimensi persegi
+            const paintingW = paintingSize;
+            const paintingH = paintingSize;
+            const zOffset = 50; // Tinggi dari lantai
+            
+            ctx.strokeStyle = art.frameColor; // Warna Bingkai Terminal
+            ctx.lineWidth = 2;
+
+            let x0, y0, x1, y1;
+
+            if (art.wall === 'left') {
+                const centerFloor = toIso(art.pos + 0.5, 0);
+                x0 = centerFloor.x - (paintingW/2 * 1); 
+                y0 = centerFloor.y - zOffset - (paintingW/2 * 0.5); 
+                x1 = centerFloor.x + (paintingW/2 * 1);
+                y1 = centerFloor.y - zOffset + (paintingW/2 * 0.5);
+            } else if (art.wall === 'right') {
+                const centerFloor = toIso(0, art.pos + 0.5);
+                x0 = centerFloor.x + (paintingW/2 * 1);
+                y0 = centerFloor.y - zOffset - (paintingW/2 * 0.5); 
+                x1 = centerFloor.x - (paintingW/2 * 1);
+                y1 = centerFloor.y - zOffset + (paintingW/2 * 0.5);
+            }
+
+            // Gambar lukisan dengan perspective mapping
+            if (art.img && art.img.complete && art.img.naturalWidth > 0) {
+                ctx.save();
+                
+                // Kalkulasi vektor mapping isometrik ke 2D Canvas
+                let pTopLeftX, pTopLeftY, pWidthX, pWidthY;
+                if (art.wall === 'left') {
+                    pTopLeftX = x0; pTopLeftY = y0 - paintingH;
+                    pWidthX = x1 - x0; pWidthY = y1 - y0;
+                } else {
+                    pTopLeftX = x1; pTopLeftY = y1 - paintingH;
+                    pWidthX = x0 - x1; pWidthY = y0 - y1;
+                }
+
+                // setTransform(scaleX, skewY, skewX, scaleY, translateX, translateY)
+                ctx.setTransform(
+                    pWidthX / art.img.naturalWidth, 
+                    pWidthY / art.img.naturalWidth, 
+                    0, 
+                    paintingH / art.img.naturalHeight, 
+                    pTopLeftX, 
+                    pTopLeftY
+                );
+                
+                ctx.drawImage(art.img, 0, 0);
+                
+                // Tambahkan Matrix Overlay Tint
+                ctx.fillStyle = 'rgba(0, 255, 65, 0.4)';
+                ctx.fillRect(0, 0, art.img.naturalWidth, art.img.naturalHeight);
+                ctx.restore();
+            } else {
+                // Fallback / Loading shape jika gambar belum termuat
+                ctx.fillStyle = 'rgba(0, 255, 65, 0.1)';
+                ctx.beginPath();
+                ctx.moveTo(x0, y0); 
+                ctx.lineTo(x1, y1); 
+                ctx.lineTo(x1, y1 - paintingH); 
+                ctx.lineTo(x0, y0 - paintingH); 
+                ctx.closePath();
+                ctx.fill();
+            }
+            
+            // Outer Frame Wireframe
+            ctx.beginPath();
+            ctx.moveTo(x0, y0); 
+            ctx.lineTo(x1, y1); 
+            ctx.lineTo(x1, y1 - paintingH); 
+            ctx.lineTo(x0, y0 - paintingH); 
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.lineWidth = 1; // reset
+        }
+
+        function drawPlayer() {
+            const pos = toIso(player.x, player.y);
+            
+            // Wireframe shadow pijakan
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.5)';
+            ctx.beginPath();
+            ctx.ellipse(pos.x, pos.y, 15, 7.5, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Gambar Sprite Karakter Animasi
+            if (playerImg.complete && playerImg.naturalWidth > 0) {
+                // Flip Horizontal jika menghadap Kanan-Bawah atau Kiri-Atas
+                const flip = (player.facing === 'BR' || player.facing === 'TL');
+                
+                ctx.save();
+                ctx.translate(pos.x, pos.y);
+                if (flip) ctx.scale(-1, 1);
+                
+                // Memberikan efek glow matrix agar membaur dengan tema
+                ctx.shadowBlur = 2;
+                ctx.shadowColor = '#00ff41';
+                
+                ctx.drawImage(
+                    playerImg,
+                    player.frameX * player.width,
+                    player.frameY * player.height,
+                    player.width,
+                    player.height,
+                    -player.width / 2,
+                    -player.height + 15, // Offset Y agar sprite berpijak pas di tengah bayangan
+                    player.width,
+                    player.height
+                );
+                ctx.restore();
+            }
+        }
+
+        function drawDecoration(deco) {
+            if (!deco.img.complete || deco.img.naturalWidth === 0) return;
+            const pos = toIso(deco.x, deco.y);
+
+            // Wireframe bayangan pijakan
+            ctx.strokeStyle = 'rgba(0, 255, 65, 0.4)';
+            ctx.beginPath();
+            ctx.ellipse(pos.x, pos.y, deco.w/2.5, deco.w/5, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.save();
+            ctx.translate(pos.x, pos.y);
+            
+            if (deco.flip) ctx.scale(-1, 1);
+
+            // Filter CSS untuk membuat gambar asli menjadi Hologram Matrix Hijau
+            ctx.filter = 'sepia(100%) hue-rotate(70deg) saturate(300%) brightness(1.5) contrast(1.2) drop-shadow(0 0 10px #00ff41)';
+            ctx.globalAlpha = 0.8; // Transparansi hologram
+
+            ctx.drawImage(deco.img, deco.ox, deco.oy, deco.w, deco.h);
+            
+            // Efek Scanline pada hologram
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = 'rgba(0, 255, 65, 0.2)';
+            for(let i = deco.oy; i < deco.oy + deco.h; i += 4) {
+                ctx.fillRect(deco.ox, i, deco.w, 1);
+            }
+            
+            ctx.restore();
+        }
+
+        /**
+         * LOGIKA UPDATE
+         */
+        let currentNearbyArt = null;
+        const viewBtn = document.getElementById('view-btn');
+
+        function update() {
+            // Gerakan
+            let dx = 0;
+            let dy = 0;
+            
+            // Pemetaan Gerak Ke Sumbu Isometrik (Karakter berjalan sejajar garis grid diagonal)
+            // W -> Atas Kiri (TL)
+            // S -> Bawah Kanan (BR)
+            // A -> Bawah Kiri (BL)
+            // D -> Atas Kanan (TR)
+            if (keys.ArrowUp || keys.w) { dx -= player.speed; player.facing = 'TL'; }
+            if (keys.ArrowDown || keys.s) { dx += player.speed; player.facing = 'BR'; }
+            if (keys.ArrowLeft || keys.a) { dy += player.speed; player.facing = 'BL'; }
+            if (keys.ArrowRight || keys.d) { dy -= player.speed; player.facing = 'TR'; }
+
+            // Normalisasi pergerakan kombinasi dua tombol
+            if (dx !== 0 && dy !== 0) {
+                dx *= 0.707;
+                dy *= 0.707;
+                // Saat menekan 2 tombol, prioritaskan hadap visual
+                if (keys.ArrowLeft || keys.a) player.facing = 'BL';
+                else if (keys.ArrowRight || keys.d) player.facing = 'TR';
+            }
+
+            player.isMoving = (dx !== 0 || dy !== 0);
+
+            // --------------------
+            // LOGIKA ANIMASI SPRITE
+            // --------------------
+            const now = Date.now();
+            if (now - player.lastAnimTime > player.animInterval) {
+                player.frameX++;
+                player.lastAnimTime = now;
+            }
+
+            let maxFrames = 1;
+            if (player.isMoving) {
+                if (player.facing === 'BL' || player.facing === 'BR') {
+                    player.frameY = 1; // Baris 2: Animasi Walk Bawah
+                    maxFrames = 2;
+                } else {
+                    player.frameY = 3; // Baris 4: Animasi Walk Atas
+                    maxFrames = 2;
+                }
+            } else {
+                if (player.facing === 'BL' || player.facing === 'BR') {
+                    player.frameY = 0; // Baris 1: Animasi Idle Bawah
+                    maxFrames = 4;
+                } else {
+                    player.frameY = 2; // Baris 3: Animasi Idle Atas
+                    maxFrames = 2;
+                }
+            }
+
+            // Reset loop frame jika mencapai batas maksimal baris
+            if (player.frameX >= maxFrames) {
+                player.frameX = 0;
+            }
+
+            // Hitung posisi baru
+            let nextX = player.x + dx;
+            let nextY = player.y + dy;
+
+            // Batasan Ruangan (Kolisi Tembok)
+            const padding = player.radius;
+            if (nextX < padding) nextX = padding;
+            if (nextX > gridSize - padding) nextX = gridSize - padding;
+            if (nextY < padding) nextY = padding;
+            if (nextY > gridSize - padding) nextY = gridSize - padding;
+
+            player.x = nextX;
+            player.y = nextY;
+
+            // Cek interaksi dengan lukisan
+            let nearbyArt = null;
+            const interactionDist = 1.5; // Jarak interaksi di unit grid
+
+            for (let art of artworks) {
+                // Hitung posisi lukisan di grid
+                let artX = art.wall === 'left' ? art.pos + 0.5 : 0;
+                let artY = art.wall === 'right' ? art.pos + 0.5 : 0;
+                
+                // Jarak Euclidean standar
+                let dist = Math.sqrt(Math.pow(player.x - artX, 2) + Math.pow(player.y - artY, 2));
+                
+                if (dist < interactionDist) {
+                    nearbyArt = art;
+                    break; // Hanya ambil satu terdekat
+                }
+            }
+
+            // Tampilkan/Sembunyikan tombol UI
+            if (nearbyArt !== currentNearbyArt) {
+                currentNearbyArt = nearbyArt;
+                if (currentNearbyArt) {
+                    viewBtn.classList.remove('hidden');
+                    // Paksa reflow untuk memicu animasi popin lagi
+                    void viewBtn.offsetWidth; 
+                    viewBtn.classList.add('show');
+                } else {
+                    viewBtn.classList.remove('show');
+                    // Tunggu animasi sebelum hidden sepenuhnya
+                    setTimeout(() => {
+                        if(!currentNearbyArt) viewBtn.classList.add('hidden');
+                    }, 200);
+                }
+            }
+        }
+
+        function updateMatrix() {
+            const now = Date.now();
+            if (now - lastMatrixUpdate < 50) return; // ~20 FPS matrix rain
+            lastMatrixUpdate = now;
+
+            bgCtx.fillStyle = 'rgba(2, 5, 2, 0.15)'; // Jejak/Fade effect
+            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+            
+            bgCtx.font = fontSize + 'px monospace';
+            
+            for(let i = 0; i < drops.length; i++) {
+                const text = runes[Math.floor(Math.random() * runes.length)];
+                
+                // Variasi warna untuk karakter depan (putih terang vs hijau glow)
+                if (Math.random() > 0.9) {
+                    bgCtx.shadowBlur = 8;
+                    bgCtx.shadowColor = '#ffffff';
+                    bgCtx.fillStyle = '#ffffff';
+                } else {
+                    bgCtx.shadowBlur = 4;
+                    bgCtx.shadowColor = '#00ff41';
+                    bgCtx.fillStyle = '#00ff41';
+                }
+                
+                bgCtx.fillText(text, i * fontSize, drops[i] * fontSize);
+                bgCtx.shadowBlur = 0;
+                
+                // Reset drop ke atas layar
+                if(drops[i] * fontSize > bgCanvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+
+        /**
+         * GAME LOOP (RENDER + UPDATE)
+         */
+        function gameLoop() {
+            updateMatrix(); // Animasi background RUNE jatuh
+            update();
+
+            // Clear Canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // 1. Gambar Lantai (Solid Matrix Grid)
+            for (let x = 0; x < gridSize; x++) {
+                for (let y = 0; y < gridSize; y++) {
+                    let baseColor = '#000a00'; // Warna solid agar background tidak tembus
+                    drawTile(x, y, baseColor, 'rgba(0, 255, 65, 0.3)');
+                }
+            }
+
+            // 2. Gambar Dinding (Kiri & Kanan) - (Warna solid di dalam fungsi)
+            drawLeftWall();
+            drawRightWall();
+
+            // 3. Gambar Lukisan di dinding
+            for(let art of artworks) {
+                drawPainting(art);
+            }
+
+            // 4. Render Entity (Player + Dekorasi Hologram) dengan Depth Sorting (Z-Index Isometrik)
+            let renderables = [
+                { type: 'player', obj: player, depth: player.x + player.y },
+                ...decorations.map(d => ({ type: 'deco', obj: d, depth: d.x + d.y }))
+            ];
+
+            // Urutkan dari belakang (depth kecil) ke depan (depth besar) agar yang di depan menutupi yang di belakang
+            renderables.sort((a, b) => a.depth - b.depth);
+
+            for (let item of renderables) {
+                if (item.type === 'player') {
+                    drawPlayer();
+                } else if (item.type === 'deco') {
+                    drawDecoration(item.obj);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * INTERAKSI UI (MODAL)
+         */
+        const modal = document.getElementById('art-modal');
+        const modalContent = document.getElementById('modal-content');
+        const closeBtn = document.getElementById('close-modal-btn');
+        const mImage = document.getElementById('modal-image');
+
+        // Buka Modal
+        viewBtn.addEventListener('click', () => {
+            if (currentNearbyArt) {
+                // Tampilkan Modal dengan animasi
+                modal.classList.remove('hidden');
+                
+                // Tampilkan gambar lukisan
+                mImage.src = currentNearbyArt.imageUrl;
+                
+                // Paksa render
+                setTimeout(() => {
+                    modal.classList.remove('opacity-0');
+                    modalContent.classList.remove('scale-95');
+                }, 10);
+            }
+        });
+
+        // Tutup Modal fungsi
+        function closeModal() {
+            modal.classList.add('opacity-0');
+            modalContent.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300); // Sesuai durasi transisi tailwind
+        }
+
+        closeBtn.addEventListener('click', closeModal);
+        
+        // Tutup jika klik diluar konten modal
+        modal.addEventListener('click', (e) => {
+            if(e.target === modal) {
+                closeModal();
+            }
+        });
+
+        // Mulai Game
+        gameLoop();
+
+    </script>
+</body>
+</html>
